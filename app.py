@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Change in production
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
-
+app.secret_key = os.environ.get("SECRET_KEY", "fallbackkey")
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ---------- Database with Migration ----------
