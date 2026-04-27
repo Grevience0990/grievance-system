@@ -1,0 +1,6 @@
+flask
+gunicorn
+werkzeug
+fpdf
+pillow
+requests
