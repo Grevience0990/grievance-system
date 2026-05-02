@@ -4,3 +4,4 @@ werkzeug
 fpdf
 pillow
 requests
+Flask-Mail
