@@ -10,6 +10,7 @@ from flask import Flask, render_template_string, request, redirect, url_for, ses
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from fpdf import FPDF
+from flask_mail import Mail, Message
 
 # Attempt to import Pillow for circular image processing
 try:
@@ -22,7 +23,24 @@ app = Flask(__name__)
 app.secret_key = 'supersecretkey'  # Change in production
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
-app.secret_key = os.environ.get("SECRET_KEY", "fallbackkey")
+
+# Email configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'grievance.sietdkl@gmail.com'     # 🔴 Replace with your email
+app.config['MAIL_PASSWORD'] = 'rmbg gkja skpu qgsb'       # 🔴 Replace with your app password
+app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
+
+mail = Mail(app)
+
+def send_email(to, subject, body):
+    """Send plain text email using Flask-Mail."""
+    msg = Message(subject,
+                  recipients=[to])
+    msg.body = body
+    mail.send(msg)
+
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ---------- Database with Migration ----------
@@ -333,7 +351,6 @@ def base_html(content, user_menu, nav_links, messages):
     return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
-    <base href="{{ request.host_url }}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Synergy Grievance System</title>
@@ -902,7 +919,6 @@ def build_menu_nav():
         nav_links += '<a href="/admin/dashboard" class="nav-link"><i class="fas fa-tachometer-alt mr-1"></i>Dashboard</a>'
         nav_links += '<a href="/admin/grievances" class="nav-link"><i class="fas fa-tasks mr-1"></i>All Grievances</a>'
         nav_links += '<a href="/admin/helpdesk" class="nav-link"><i class="fas fa-question-circle mr-1"></i>Help Desk</a>'
-        # NEW: Database Logs link
         nav_links += '<a href="/admin/database" class="nav-link"><i class="fas fa-database mr-1"></i>Database Logs</a>'
     else:
         user_menu += '<a href="/login" class="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg hover:bg-white/30 transition mr-2"><i class="fas fa-sign-in-alt mr-1"></i>Student Login</a>'
@@ -939,6 +955,10 @@ def register():
             conn.execute('INSERT INTO students (name,email,password,roll_number,branch) VALUES (?,?,?,?,?)',
                          (name,email,password,roll,branch))
             conn.commit()
+            # Send registration confirmation email
+            send_email(email,
+                       "Registration Successful",
+                       f"Hello {name},\n\nYou have successfully registered in Grievance System.")
             flash('Registration successful! Please login.', 'success')
             return redirect(url_for('login'))
         except sqlite3.IntegrityError:
@@ -1046,7 +1066,23 @@ def submit():
         conn.execute('INSERT INTO grievances (student_id, category, description, priority, attachment) VALUES (?,?,?,?,?)',
                      (session['user_id'], category, description, priority, filename))
         conn.commit()
+        # Fetch student to get email
+        student = conn.execute('SELECT * FROM students WHERE id=?', (session['user_id'],)).fetchone()
         conn.close()
+        if student:
+            send_email(student['email'],
+                       "Grievance Submitted",
+                       f"""Hello {student['name']},
+
+Your grievance has been submitted successfully.
+
+Category: {category}
+Description: {description}
+Priority: {priority}
+
+We will update you soon.
+
+Thank you.""")
         flash('Grievance submitted successfully.', 'success')
         return redirect(url_for('my_grievances'))
     u, n = build_menu_nav()
@@ -1187,8 +1223,25 @@ def update_grievance(id):
     status = request.form['status']
     remarks = request.form['remarks']
     conn = get_db()
-    conn.execute('UPDATE grievances SET status=?, remarks=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, remarks, id))
-    conn.commit()
+    # Fetch grievance to get student_id before update
+    grievance = conn.execute('SELECT * FROM grievances WHERE id=?', (id,)).fetchone()
+    if grievance:
+        student_id = grievance['student_id']
+        conn.execute('UPDATE grievances SET status=?, remarks=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, remarks, id))
+        conn.commit()
+        # Notify student via email
+        student = conn.execute('SELECT * FROM students WHERE id=?', (student_id,)).fetchone()
+        if student:
+            send_email(student['email'],
+                       "Grievance Status Updated",
+                       f"""Hello {student['name']},
+
+Your grievance status has been updated.
+
+Status: {status}
+Remarks: {remarks}
+
+Thank you.""")
     conn.close()
     flash('Grievance updated.', 'success')
     return redirect(url_for('admin_grievances'))
